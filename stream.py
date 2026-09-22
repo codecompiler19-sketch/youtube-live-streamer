@@ -50,72 +50,62 @@ def load_playlist(filename):
 
 
 def extract_media_urls(youtube_url):
-    """Extract direct media stream URLs using yt-dlp with cookie & fallback client support."""
+    """Extract direct media stream URLs using TV/iOS client (no cookies) with cookie fallback."""
     print(f"\n🔍 Extracting media stream for: {youtube_url}")
     
-    ydl_opts = {
+    # Strategy 1: TV/iOS/Android_VR clients WITHOUT cookies (bypasses bot verification completely)
+    tv_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': False,
         'no_warnings': False,
         'noplaylist': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['tv', 'android_vr', 'ios', 'web']
+                'player_client': ['tv', 'android_vr', 'ios']
             }
         }
     }
 
-    cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
-    if cookie_file and os.path.exists(cookie_file):
-        print(f"🍪 Using YouTube cookie file: {cookie_file}")
-        ydl_opts['cookiefile'] = cookie_file
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(tv_opts) as ydl:
             info = ydl.extract_info(youtube_url, download=False)
             
-            # Check for split video and audio streams
             if 'requested_formats' in info and len(info['requested_formats']) >= 2:
-                video_url = None
-                audio_url = None
+                v_url, a_url = None, None
                 for fmt in info['requested_formats']:
-                    if fmt.get('vcodec') != 'none' and not video_url:
-                        video_url = fmt.get('url')
-                    elif fmt.get('acodec') != 'none' and not audio_url:
-                        audio_url = fmt.get('url')
-                
-                if video_url and audio_url:
-                    print("✅ Extracted dual video + audio stream URLs.")
-                    return [video_url, audio_url]
+                    if fmt.get('vcodec') != 'none' and not v_url:
+                        v_url = fmt.get('url')
+                    elif fmt.get('acodec') != 'none' and not a_url:
+                        a_url = fmt.get('url')
+                if v_url and a_url:
+                    print("✅ Extracted dual video + audio stream URLs (TV client).")
+                    return [v_url, a_url]
 
-            # Single combined format fallback
             if 'url' in info:
-                print("✅ Extracted single combined stream URL.")
+                print("✅ Extracted stream URL (TV client).")
                 return [info['url']]
-
-            raise ValueError("Could not extract stream URL from video format metadata.")
     except Exception as e:
-        print(f"❌ Extraction error for {youtube_url}: {e}")
-        # Secondary fallback: simple format best
-        try:
-            print("🔄 Retrying with fallback format 'best'...")
-            fallback_opts = {
-                'format': 'best',
-                'noplaylist': True,
-                'extractor_args': {'youtube': {'player_client': ['tv', 'android_vr', 'ios']}}
-            }
-            if cookie_file and os.path.exists(cookie_file):
-                fallback_opts['cookiefile'] = cookie_file
+        print(f"⚠️ TV client extraction failed: {e}")
 
-            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+    # Strategy 2: Cookie-based fallback if TV client fails
+    cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
+    if cookie_file and os.path.exists(cookie_file):
+        print(f"🍪 Retrying with YouTube cookie file: {cookie_file}")
+        cookie_opts = {
+            'format': 'best',
+            'noplaylist': True,
+            'cookiefile': cookie_file
+        }
+        try:
+            with yt_dlp.YoutubeDL(cookie_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
                 if 'url' in info:
-                    print("✅ Fallback extraction successful.")
+                    print("✅ Extracted stream URL (Cookie fallback).")
                     return [info['url']]
         except Exception as e2:
-            print(f"❌ Fallback extraction also failed: {e2}")
+            print(f"❌ Cookie extraction failed: {e2}")
 
-        return None
+    return None
 
 
 def stream_video(media_urls, stream_target):
