@@ -50,7 +50,7 @@ def load_playlist(filename):
 
 
 def extract_media_urls(youtube_url):
-    """Extract direct media stream URLs using yt-dlp with fallback clients for cloud runners."""
+    """Extract direct media stream URLs using yt-dlp with cookie & fallback client support."""
     print(f"\n🔍 Extracting media stream for: {youtube_url}")
     
     ydl_opts = {
@@ -58,13 +58,17 @@ def extract_media_urls(youtube_url):
         'quiet': False,
         'no_warnings': False,
         'noplaylist': True,
-        # Use player clients suitable for datacenter/cloud runner IPs
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web', 'mweb']
+                'player_client': ['android', 'ios', 'web', 'mweb']
             }
         }
     }
+
+    cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
+    if cookie_file and os.path.exists(cookie_file):
+        print(f"🍪 Using YouTube cookie file: {cookie_file}")
+        ydl_opts['cookiefile'] = cookie_file
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -100,6 +104,9 @@ def extract_media_urls(youtube_url):
                 'noplaylist': True,
                 'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
             }
+            if cookie_file and os.path.exists(cookie_file):
+                fallback_opts['cookiefile'] = cookie_file
+
             with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
                 if 'url' in info:

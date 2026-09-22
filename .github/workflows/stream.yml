@@ -19,7 +19,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install FFmpeg & System Packages
         run: |
@@ -29,11 +29,25 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yt-dlp
+          python -m pip install --upgrade --pre "yt-dlp[default]"
+
+      - name: Prepare YouTube cookies
+        env:
+          YOUTUBE_COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
+        run: |
+          if [ -n "$YOUTUBE_COOKIES_B64" ]; then
+            printf '%s' "$YOUTUBE_COOKIES_B64" | base64 --decode > "$RUNNER_TEMP/youtube-cookies.txt"
+            chmod 600 "$RUNNER_TEMP/youtube-cookies.txt"
+            echo "YOUTUBE_COOKIE_FILE=$RUNNER_TEMP/youtube-cookies.txt" >> "$GITHUB_ENV"
+            echo "🍪 YouTube cookies configured successfully."
+          else
+            echo "ℹ️ YOUTUBE_COOKIES_B64 secret is not set. Running without cookies."
+          fi
 
       - name: Execute Live Stream
         env:
           YOUTUBE_STREAM_KEY: ${{ secrets.YOUTUBE_STREAM_KEY }}
           YOUTUBE_RTMPS_URL: ${{ secrets.YOUTUBE_RTMPS_URL }}
+          YOUTUBE_COOKIE_FILE: ${{ env.YOUTUBE_COOKIE_FILE }}
         run: |
           python stream.py
