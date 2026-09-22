@@ -2,7 +2,7 @@
 """
 YouTube Live Streamer
 Streams videos from playlist.txt to YouTube Live via FFmpeg and yt-dlp.
-Designed to run on GitHub Actions standard runners.
+Designed to run locally or on GitHub Actions runners.
 """
 
 import os
@@ -11,7 +11,7 @@ import time
 import subprocess
 import yt_dlp
 
-# Maximum streaming duration in seconds (5 hours 55 minutes to stay within GitHub Actions 6h limit)
+# Maximum streaming duration in seconds (5 hours 55 minutes)
 MAX_DURATION_SECONDS = int(os.getenv("MAX_STREAM_DURATION_SECONDS", "21300"))
 PLAYLIST_FILE = os.getenv("PLAYLIST_FILE", "playlist.txt")
 
@@ -21,7 +21,7 @@ def get_stream_target():
     stream_key = os.getenv("YOUTUBE_STREAM_KEY", "").strip()
     if not stream_key:
         print("❌ ERROR: YOUTUBE_STREAM_KEY environment variable is missing or empty.")
-        print("Please configure YOUTUBE_STREAM_KEY in GitHub Repository Settings -> Secrets and variables -> Actions.")
+        print("Please set YOUTUBE_STREAM_KEY in your terminal (e.g. set YOUTUBE_STREAM_KEY=your_key).")
         sys.exit(1)
 
     print(f"🔑 Stream key loaded successfully (length: {len(stream_key)} chars).")
@@ -50,66 +50,64 @@ def load_playlist(filename):
 
 
 def extract_media_urls(youtube_url):
-    """Extract direct media stream URLs using TV/iOS client (no cookies) with cookie fallback."""
+    """Extract direct media stream URLs and HTTP headers using yt-dlp."""
     print(f"\n🔍 Extracting media stream for: {youtube_url}")
     
-    # Strategy 1: TV/iOS/Android_VR clients WITHOUT cookies (bypasses bot verification completely)
-    tv_opts = {
+    ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': False,
         'no_warnings': False,
         'noplaylist': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv', 'android_vr', 'ios']
-            }
-        }
+        'js_runtimes': {'node': {}}
     }
 
     try:
-        with yt_dlp.YoutubeDL(tv_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(youtube_url, download=False)
             
+            headers = info.get('http_headers', {})
+            user_agent = headers.get('User-Agent', '')
+
+            # Check for split video and audio streams
             if 'requested_formats' in info and len(info['requested_formats']) >= 2:
-                v_url, a_url = None, None
+                video_url, audio_url = None, None
+                v_ua, a_ua = user_agent, user_agent
+
                 for fmt in info['requested_formats']:
-                    if fmt.get('vcodec') != 'none' and not v_url:
-                        v_url = fmt.get('url')
-                    elif fmt.get('acodec') != 'none' and not a_url:
-                        a_url = fmt.get('url')
-                if v_url and a_url:
-                    print("✅ Extracted dual video + audio stream URLs (TV client).")
-                    return [v_url, a_url]
+                    if fmt.get('vcodec') != 'none' and not video_url:
+                        video_url = fmt.get('url')
+                        v_ua = fmt.get('http_headers', {}).get('User-Agent', user_agent)
+                    elif fmt.get('acodec') != 'none' and not audio_url:
+                        audio_url = fmt.get('url')
+                        a_ua = fmt.get('http_headers', {}).get('User-Agent', user_agent)
+                
+                if video_url and audio_url:
+                    print("✅ Extracted dual video + audio stream URLs successfully.")
+                    return {
+                        'type': 'dual',
+                        'video_url': video_url,
+                        'audio_url': audio_url,
+                        'video_ua': v_ua,
+                        'audio_ua': a_ua
+                    }
 
+            # Single combined stream fallback
             if 'url' in info:
-                print("✅ Extracted stream URL (TV client).")
-                return [info['url']]
+                print("✅ Extracted single combined stream URL successfully.")
+                return {
+                    'type': 'single',
+                    'url': info['url'],
+                    'user_agent': user_agent
+                }
+
+            raise ValueError("Could not extract stream URL from video format metadata.")
     except Exception as e:
-        print(f"⚠️ TV client extraction failed: {e}")
-
-    # Strategy 2: Cookie-based fallback if TV client fails
-    cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
-    if cookie_file and os.path.exists(cookie_file):
-        print(f"🍪 Retrying with YouTube cookie file: {cookie_file}")
-        cookie_opts = {
-            'format': 'best',
-            'noplaylist': True,
-            'cookiefile': cookie_file
-        }
-        try:
-            with yt_dlp.YoutubeDL(cookie_opts) as ydl:
-                info = ydl.extract_info(youtube_url, download=False)
-                if 'url' in info:
-                    print("✅ Extracted stream URL (Cookie fallback).")
-                    return [info['url']]
-        except Exception as e2:
-            print(f"❌ Cookie extraction failed: {e2}")
-
-    return None
+        print(f"❌ Extraction error for {youtube_url}: {e}")
+        return None
 
 
-def stream_video(media_urls, stream_target):
-    """Stream media via FFmpeg to YouTube Live."""
+def stream_video(media_data, stream_target):
+    """Stream media via FFmpeg to YouTube Live passing required User-Agent headers."""
     ffmpeg_cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
 
     reconnect_flags = [
@@ -119,15 +117,26 @@ def stream_video(media_urls, stream_target):
         "-reconnect_delay_max", "5"
     ]
 
-    if len(media_urls) == 2:
-        v_url, a_url = media_urls
+    if media_data['type'] == 'dual':
+        v_url = media_data['video_url']
+        a_url = media_data['audio_url']
+        v_ua = media_data['video_ua']
+        a_ua = media_data['audio_ua']
+
+        ffmpeg_cmd.extend(["-user_agent", v_ua])
         ffmpeg_cmd.extend(reconnect_flags)
         ffmpeg_cmd.extend(["-re", "-i", v_url])
+
+        ffmpeg_cmd.extend(["-user_agent", a_ua])
         ffmpeg_cmd.extend(reconnect_flags)
         ffmpeg_cmd.extend(["-re", "-i", a_url])
+
         ffmpeg_cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
     else:
-        s_url = media_urls[0]
+        s_url = media_data['url']
+        ua = media_data['user_agent']
+
+        ffmpeg_cmd.extend(["-user_agent", ua])
         ffmpeg_cmd.extend(reconnect_flags)
         ffmpeg_cmd.extend(["-re", "-i", s_url])
 
@@ -149,7 +158,7 @@ def stream_video(media_urls, stream_target):
         stream_target
     ])
 
-    print("▶️ Executing FFmpeg command...")
+    print("▶️ Executing FFmpeg stream output to YouTube Live...")
     try:
         process = subprocess.Popen(ffmpeg_cmd)
         process.wait()
@@ -182,10 +191,10 @@ def main():
         current_url = playlist[idx % len(playlist)]
         print(f"\n[{idx + 1}] Processing item {idx % len(playlist) + 1}/{len(playlist)}: {current_url}")
 
-        media_urls = extract_media_urls(current_url)
-        if media_urls:
+        media_data = extract_media_urls(current_url)
+        if media_data:
             failed_attempts = 0
-            success = stream_video(media_urls, stream_target)
+            success = stream_video(media_data, stream_target)
             if not success:
                 print("⚠️ Stream finished with warnings/errors. Waiting 5 seconds before next item...")
                 time.sleep(5)
