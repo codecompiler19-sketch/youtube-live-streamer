@@ -1,0 +1,39 @@
+name: YouTube Live Streamer
+
+on:
+  workflow_dispatch:
+  # Optional: Schedule to run automatically (uncomment below if needed)
+  # schedule:
+  #   - cron: '0 */6 * * *'
+
+jobs:
+  stream:
+    name: Stream to YouTube Live
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # GitHub hard limit for single job execution (6 hours)
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install FFmpeg & System Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yt-dlp
+
+      - name: Execute Live Stream
+        env:
+          YOUTUBE_STREAM_KEY: ${{ secrets.YOUTUBE_STREAM_KEY }}
+          YOUTUBE_RTMPS_URL: ${{ secrets.YOUTUBE_RTMPS_URL }}
+        run: |
+          python stream.py

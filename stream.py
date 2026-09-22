@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""
+YouTube Live Streamer
+Streams videos from playlist.txt to YouTube Live via FFmpeg and yt-dlp.
+Designed to run on GitHub Actions standard runners.
+"""
+
+import os
+import sys
+import time
+import subprocess
+import yt_dlp
+
+# Maximum streaming duration in seconds (5 hours 55 minutes to stay within GitHub Actions 6h limit)
+MAX_DURATION_SECONDS = int(os.getenv("MAX_STREAM_DURATION_SECONDS", "21300"))
+PLAYLIST_FILE = os.getenv("PLAYLIST_FILE", "playlist.txt")
+
+
+def get_stream_target():
+    """Retrieve and validate YouTube Stream Key and Server URL from environment."""
+    stream_key = os.getenv("YOUTUBE_STREAM_KEY")
+    if not stream_key:
+        print("❌ ERROR: YOUTUBE_STREAM_KEY environment variable is missing.")
+        print("Please configure YOUTUBE_STREAM_KEY in your repository's Secrets.")
+        sys.exit(1)
+
+    rtmps_url = os.getenv("YOUTUBE_RTMPS_URL", "rtmp://a.rtmp.youtube.com/live2").rstrip("/")
+    return f"{rtmps_url}/{stream_key}"
+
+
+def load_playlist(filename):
+    """Load video URLs from playlist text file."""
+    if not os.path.exists(filename):
+        print(f"❌ ERROR: Playlist file '{filename}' not found.")
+        sys.exit(1)
+
+    urls = []
+    with open(filename, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                urls.append(line)
+
+    if not urls:
+        print(f"❌ ERROR: Playlist file '{filename}' contains no valid URLs.")
+        sys.exit(1)
+
+    return urls
+
+
+def extract_media_urls(youtube_url):
+    """Extract direct media stream URLs using yt-dlp."""
+    print(f"\n🔍 Extracting media stream for: {youtube_url}")
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=False)
+            
+            # Check for split video and audio streams
+            if 'requested_formats' in info and len(info['requested_formats']) >= 2:
+                video_url = None
+                audio_url = None
+                for fmt in info['requested_formats']:
+                    if fmt.get('vcodec') != 'none' and not video_url:
+                        video_url = fmt.get('url')
+                    elif fmt.get('acodec') != 'none' and not audio_url:
+                        audio_url = fmt.get('url')
+                
+                if video_url and audio_url:
+                    return [video_url, audio_url]
+
+            # Single combined format fallback
+            if 'url' in info:
+                return [info['url']]
+
+            raise ValueError("Could not extract stream URL from video format metadata.")
+    except Exception as e:
+        print(f"⚠️ Failed to extract stream URL for {youtube_url}: {e}")
+        return None
+
+
+def stream_video(media_urls, stream_target):
+    """Stream media via FFmpeg to YouTube Live."""
+    # Build FFmpeg command with recommended YouTube Live parameters
+    ffmpeg_cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
+
+    # HTTP reconnect options for resilience against network hiccups
+    reconnect_flags = [
+        "-reconnect", "1",
+        "-reconnect_at_eof", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_delay_max", "5"
+    ]
+
+    if len(media_urls) == 2:
+        # Separate video and audio inputs
+        v_url, a_url = media_urls
+        ffmpeg_cmd.extend(reconnect_flags)
+        ffmpeg_cmd.extend(["-re", "-i", v_url])
+        ffmpeg_cmd.extend(reconnect_flags)
+        ffmpeg_cmd.extend(["-re", "-i", a_url])
+        ffmpeg_cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
+    else:
+        # Single input
+        s_url = media_urls[0]
+        ffmpeg_cmd.extend(reconnect_flags)
+        ffmpeg_cmd.extend(["-re", "-i", s_url])
+
+    # Video / Audio Encoding settings tuned for YouTube Live CBR
+    ffmpeg_cmd.extend([
+        "-c:v", "libx264",
+        "-preset", "superfast",
+        "-tune", "zerolatency",
+        "-b:v", "4500k",
+        "-maxrate", "4500k",
+        "-bufsize", "9000k",
+        "-pix_fmt", "yuv420p",
+        "-g", "60",
+        "-keyint_min", "60",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-ar", "44100",
+        "-f", "flv",
+        stream_target
+    ])
+
+    print("▶️ Starting FFmpeg stream output...")
+    try:
+        process = subprocess.Popen(ffmpeg_cmd)
+        process.wait()
+        return process.returncode == 0
+    except Exception as e:
+        print(f"⚠️ FFmpeg process error: {e}")
+        return False
+
+
+def main():
+    stream_target = get_stream_target()
+    playlist = load_playlist(PLAYLIST_FILE)
+
+    print("==========================================")
+    print("🚀 YouTube Live Streamer Started")
+    print(f"📋 Loaded {len(playlist)} video(s) into loop.")
+    print(f"⏱️ Maximum duration set to {MAX_DURATION_SECONDS // 3600}h {(MAX_DURATION_SECONDS % 3600) // 60}m.")
+    print("==========================================")
+
+    start_time = time.time()
+    idx = 0
+
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed >= MAX_DURATION_SECONDS:
+            print(f"\n⏰ Maximum duration of {MAX_DURATION_SECONDS}s reached. Stopping stream cleanly.")
+            break
+
+        current_url = playlist[idx % len(playlist)]
+        print(f"\n[{idx + 1}] Processing item {idx % len(playlist) + 1}/{len(playlist)}: {current_url}")
+
+        media_urls = extract_media_urls(current_url)
+        if media_urls:
+            success = stream_video(media_urls, stream_target)
+            if not success:
+                print("⚠️ Stream finished with warnings/errors. Waiting 5 seconds before next item...")
+                time.sleep(5)
+        else:
+            print("⚠️ Skipping to next video due to extraction failure.")
+            time.sleep(3)
+
+        idx += 1
+
+
+if __name__ == "__main__":
+    main()
