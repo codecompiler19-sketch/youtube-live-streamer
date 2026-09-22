@@ -18,13 +18,14 @@ PLAYLIST_FILE = os.getenv("PLAYLIST_FILE", "playlist.txt")
 
 def get_stream_target():
     """Retrieve and validate YouTube Stream Key and Server URL from environment."""
-    stream_key = os.getenv("YOUTUBE_STREAM_KEY")
+    stream_key = os.getenv("YOUTUBE_STREAM_KEY", "").strip()
     if not stream_key:
-        print("❌ ERROR: YOUTUBE_STREAM_KEY environment variable is missing.")
-        print("Please configure YOUTUBE_STREAM_KEY in your repository's Secrets.")
+        print("❌ ERROR: YOUTUBE_STREAM_KEY environment variable is missing or empty.")
+        print("Please configure YOUTUBE_STREAM_KEY in GitHub Repository Settings -> Secrets and variables -> Actions.")
         sys.exit(1)
 
-    rtmps_url = os.getenv("YOUTUBE_RTMPS_URL", "rtmp://a.rtmp.youtube.com/live2").rstrip("/")
+    print(f"🔑 Stream key loaded successfully (length: {len(stream_key)} chars).")
+    rtmps_url = os.getenv("YOUTUBE_RTMPS_URL", "rtmp://a.rtmp.youtube.com/live2").strip().rstrip("/")
     return f"{rtmps_url}/{stream_key}"
 
 
@@ -49,13 +50,20 @@ def load_playlist(filename):
 
 
 def extract_media_urls(youtube_url):
-    """Extract direct media stream URLs using yt-dlp."""
+    """Extract direct media stream URLs using yt-dlp with fallback clients for cloud runners."""
     print(f"\n🔍 Extracting media stream for: {youtube_url}")
+    
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': False,
+        'no_warnings': False,
         'noplaylist': True,
+        # Use player clients suitable for datacenter/cloud runner IPs
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web', 'mweb']
+            }
+        }
     }
 
     try:
@@ -73,24 +81,40 @@ def extract_media_urls(youtube_url):
                         audio_url = fmt.get('url')
                 
                 if video_url and audio_url:
+                    print("✅ Extracted dual video + audio stream URLs.")
                     return [video_url, audio_url]
 
             # Single combined format fallback
             if 'url' in info:
+                print("✅ Extracted single combined stream URL.")
                 return [info['url']]
 
             raise ValueError("Could not extract stream URL from video format metadata.")
     except Exception as e:
-        print(f"⚠️ Failed to extract stream URL for {youtube_url}: {e}")
+        print(f"❌ Extraction error for {youtube_url}: {e}")
+        # Secondary fallback: simple format best
+        try:
+            print("🔄 Retrying with fallback format 'best'...")
+            fallback_opts = {
+                'format': 'best',
+                'noplaylist': True,
+                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+            }
+            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                if 'url' in info:
+                    print("✅ Fallback extraction successful.")
+                    return [info['url']]
+        except Exception as e2:
+            print(f"❌ Fallback extraction also failed: {e2}")
+
         return None
 
 
 def stream_video(media_urls, stream_target):
     """Stream media via FFmpeg to YouTube Live."""
-    # Build FFmpeg command with recommended YouTube Live parameters
     ffmpeg_cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
 
-    # HTTP reconnect options for resilience against network hiccups
     reconnect_flags = [
         "-reconnect", "1",
         "-reconnect_at_eof", "1",
@@ -99,7 +123,6 @@ def stream_video(media_urls, stream_target):
     ]
 
     if len(media_urls) == 2:
-        # Separate video and audio inputs
         v_url, a_url = media_urls
         ffmpeg_cmd.extend(reconnect_flags)
         ffmpeg_cmd.extend(["-re", "-i", v_url])
@@ -107,15 +130,14 @@ def stream_video(media_urls, stream_target):
         ffmpeg_cmd.extend(["-re", "-i", a_url])
         ffmpeg_cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
     else:
-        # Single input
         s_url = media_urls[0]
         ffmpeg_cmd.extend(reconnect_flags)
         ffmpeg_cmd.extend(["-re", "-i", s_url])
 
-    # Video / Audio Encoding settings tuned for YouTube Live CBR
+    # Standard YouTube Live H.264 + AAC output configuration
     ffmpeg_cmd.extend([
         "-c:v", "libx264",
-        "-preset", "superfast",
+        "-preset", "veryfast",
         "-tune", "zerolatency",
         "-b:v", "4500k",
         "-maxrate", "4500k",
@@ -130,7 +152,7 @@ def stream_video(media_urls, stream_target):
         stream_target
     ])
 
-    print("▶️ Starting FFmpeg stream output...")
+    print("▶️ Executing FFmpeg command...")
     try:
         process = subprocess.Popen(ffmpeg_cmd)
         process.wait()
@@ -152,6 +174,7 @@ def main():
 
     start_time = time.time()
     idx = 0
+    failed_attempts = 0
 
     while True:
         elapsed = time.time() - start_time
@@ -164,13 +187,18 @@ def main():
 
         media_urls = extract_media_urls(current_url)
         if media_urls:
+            failed_attempts = 0
             success = stream_video(media_urls, stream_target)
             if not success:
                 print("⚠️ Stream finished with warnings/errors. Waiting 5 seconds before next item...")
                 time.sleep(5)
         else:
-            print("⚠️ Skipping to next video due to extraction failure.")
-            time.sleep(3)
+            failed_attempts += 1
+            print(f"⚠️ Extraction failed (Attempt {failed_attempts}).")
+            if failed_attempts >= 5:
+                print("❌ ERROR: Failed to extract stream URLs 5 times in a row. Check playlist URLs and yt-dlp compatibility.")
+                sys.exit(1)
+            time.sleep(5)
 
         idx += 1
 
