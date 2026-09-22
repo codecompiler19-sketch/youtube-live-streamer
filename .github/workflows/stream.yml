@@ -36,12 +36,13 @@ jobs:
           YOUTUBE_COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
         run: |
           if [ -n "$YOUTUBE_COOKIES_B64" ]; then
-            printf '%s' "$YOUTUBE_COOKIES_B64" | base64 --decode > "$RUNNER_TEMP/youtube-cookies.txt"
+            echo "# Netscape HTTP Cookie File" > "$RUNNER_TEMP/youtube-cookies.txt"
+            printf '%s' "$YOUTUBE_COOKIES_B64" | base64 -d >> "$RUNNER_TEMP/youtube-cookies.txt" 2>/dev/null || printf '%s' "$YOUTUBE_COOKIES_B64" | base64 --decode >> "$RUNNER_TEMP/youtube-cookies.txt"
             chmod 600 "$RUNNER_TEMP/youtube-cookies.txt"
             echo "YOUTUBE_COOKIE_FILE=$RUNNER_TEMP/youtube-cookies.txt" >> "$GITHUB_ENV"
             echo "🍪 YouTube cookies configured successfully."
           else
-            echo "ℹ️ YOUTUBE_COOKIES_B64 secret is not set. Running without cookies."
+            echo "ℹ️ YOUTUBE_COOKIES_B64 secret is not set. Running with TV/iOS player clients."
           fi
 
       - name: Execute Live Stream

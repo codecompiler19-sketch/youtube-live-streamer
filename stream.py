@@ -60,7 +60,7 @@ def extract_media_urls(youtube_url):
         'noplaylist': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web', 'mweb']
+                'player_client': ['tv', 'android_vr', 'ios', 'web']
             }
         }
     }
@@ -102,7 +102,7 @@ def extract_media_urls(youtube_url):
             fallback_opts = {
                 'format': 'best',
                 'noplaylist': True,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                'extractor_args': {'youtube': {'player_client': ['tv', 'android_vr', 'ios']}}
             }
             if cookie_file and os.path.exists(cookie_file):
                 fallback_opts['cookiefile'] = cookie_file
