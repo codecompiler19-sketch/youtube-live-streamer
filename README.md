@@ -6,10 +6,10 @@ A lightweight, automated Python live streaming tool that continuously broadcasts
 
 ## 📋 Prerequisites
 
-Before running on any computer, make sure you have:
-1. **Python 3.10+** installed ([Download Python](https://www.python.org/downloads/))
-2. **Node.js** installed ([Download Node.js](https://nodejs.org/))
-3. **FFmpeg** installed ([Download FFmpeg](https://ffmpeg.org/download.html))
+Before running on any computer, make sure you have installed:
+1. **Python 3.10+**: [Download Python for Windows/Mac/Linux](https://www.python.org/downloads/)
+2. **Node.js**: [Download Node.js Official Installer](https://nodejs.org/en/download/)
+3. **FFmpeg**: [Download FFmpeg Official Builds](https://ffmpeg.org/download.html) *(Windows users can also use [Gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/))*
 
 ---
 
