@@ -62,7 +62,7 @@ jobs:
           python stream.py
 
       - name: Auto-Restart Stream Workflow
-        if: always()
+        if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
