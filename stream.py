@@ -147,22 +147,30 @@ def stream_video(media_data, stream_target):
         v_ua = media_data['video_ua']
         a_ua = media_data['audio_ua']
 
-        ffmpeg_cmd.extend(["-user_agent", v_ua])
+        if v_ua:
+            ffmpeg_cmd.extend(["-user_agent", v_ua])
         ffmpeg_cmd.extend(reconnect_flags)
         ffmpeg_cmd.extend(["-re", "-i", v_url])
 
-        ffmpeg_cmd.extend(["-user_agent", a_ua])
+        if a_ua:
+            ffmpeg_cmd.extend(["-user_agent", a_ua])
         ffmpeg_cmd.extend(reconnect_flags)
         ffmpeg_cmd.extend(["-re", "-i", a_url])
 
         ffmpeg_cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
     else:
         s_url = media_data['url']
-        ua = media_data['user_agent']
+        ua = media_data.get('user_agent', '')
+        is_http = s_url.startswith(('http://', 'https://'))
 
-        ffmpeg_cmd.extend(["-user_agent", ua])
-        ffmpeg_cmd.extend(reconnect_flags)
-        ffmpeg_cmd.extend(["-re", "-i", s_url])
+        if is_http:
+            if ua:
+                ffmpeg_cmd.extend(["-user_agent", ua])
+            ffmpeg_cmd.extend(reconnect_flags)
+            ffmpeg_cmd.extend(["-re", "-i", s_url])
+        else:
+            # Local video file: use -stream_loop -1 for continuous seamless looping
+            ffmpeg_cmd.extend(["-stream_loop", "-1", "-re", "-i", s_url])
 
     # Standard YouTube Live H.264 + AAC output configuration
     ffmpeg_cmd.extend([
