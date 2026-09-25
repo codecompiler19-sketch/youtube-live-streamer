@@ -61,7 +61,8 @@ def extract_media_urls(youtube_url):
         'js_runtimes': {'node': {}},
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'tv', 'mweb']
+                'player_client': ['ios', 'android', 'mweb', 'tv'],
+                'player_skip': ['web', 'web_creator']
             }
         }
     }
