@@ -50,7 +50,16 @@ def load_playlist(filename):
 
 
 def extract_media_urls(youtube_url):
-    """Extract direct media stream URLs and HTTP headers using yt-dlp."""
+    """Extract direct media stream URLs and HTTP headers using yt-dlp or stream local file."""
+    # Check if local video file or direct video stream URL
+    if os.path.exists(youtube_url) or (youtube_url.startswith(('http://', 'https://')) and any(youtube_url.lower().endswith(ext) for ext in ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.ts'])):
+        print(f"\n🎥 Direct video file detected: {youtube_url}")
+        return {
+            'type': 'single',
+            'url': youtube_url,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        }
+
     print(f"\n🔍 Extracting media stream for: {youtube_url}")
     
     cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
