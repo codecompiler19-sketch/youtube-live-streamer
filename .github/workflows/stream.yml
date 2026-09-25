@@ -2,9 +2,12 @@ name: YouTube Live Streamer
 
 on:
   workflow_dispatch:
-  # Optional: Schedule to run automatically (uncomment below if needed)
-  # schedule:
-  #   - cron: '0 */6 * * *'
+  schedule:
+    - cron: '0 */6 * * *' # Run automatically every 6 hours
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   stream:
@@ -57,3 +60,11 @@ jobs:
           YOUTUBE_COOKIE_FILE: ${{ env.YOUTUBE_COOKIE_FILE }}
         run: |
           python stream.py
+
+      - name: Auto-Restart Stream Workflow
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔄 Dispatching next 6-hour streaming session automatically..."
+          gh workflow run stream.yml
