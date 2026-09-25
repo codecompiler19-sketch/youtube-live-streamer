@@ -18,7 +18,7 @@ PLAYLIST_FILE = os.getenv("PLAYLIST_FILE", "playlist.txt")
 
 def get_stream_target():
     """Retrieve and validate YouTube Stream Key and Server URL from environment."""
-    stream_key = os.getenv("YOUTUBE_STREAM_KEY", "").strip()
+    stream_key = os.getenv("YOUTUBE_STREAM_KEY", "").strip().strip('"').strip("'").strip()
     if not stream_key:
         print("❌ ERROR: YOUTUBE_STREAM_KEY environment variable is missing or empty.")
         print("Please set YOUTUBE_STREAM_KEY in your terminal (e.g. set YOUTUBE_STREAM_KEY=your_key).")
