@@ -53,68 +53,72 @@ def extract_media_urls(youtube_url):
     """Extract direct media stream URLs and HTTP headers using yt-dlp."""
     print(f"\n🔍 Extracting media stream for: {youtube_url}")
     
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'quiet': False,
-        'no_warnings': False,
-        'noplaylist': True,
-        'js_runtimes': {'node': {}},
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android', 'mweb', 'tv'],
-                'player_skip': ['web', 'web_creator']
-            }
-        }
-    }
-
     cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
     if cookie_file and os.path.exists(cookie_file):
         print(f"🍪 Using YouTube cookies from: {cookie_file}")
-        ydl_opts['cookiefile'] = cookie_file
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
-            
-            headers = info.get('http_headers', {})
-            user_agent = headers.get('User-Agent', '')
+    client_strategies = [
+        {'player_client': ['ios', 'android'], 'player_skip': ['web', 'web_creator', 'mweb', 'tv']},
+        {'player_client': ['android', 'ios'], 'player_skip': ['web', 'web_creator']},
+        {'player_client': ['tv', 'mweb'], 'player_skip': ['web']}
+    ]
 
-            # Check for split video and audio streams
-            if 'requested_formats' in info and len(info['requested_formats']) >= 2:
-                video_url, audio_url = None, None
-                v_ua, a_ua = user_agent, user_agent
+    for idx, strategy in enumerate(client_strategies, 1):
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'quiet': False,
+            'no_warnings': False,
+            'noplaylist': True,
+            'js_runtimes': {'node': {}},
+            'extractor_args': {'youtube': strategy}
+        }
 
-                for fmt in info['requested_formats']:
-                    if fmt.get('vcodec') != 'none' and not video_url:
-                        video_url = fmt.get('url')
-                        v_ua = fmt.get('http_headers', {}).get('User-Agent', user_agent)
-                    elif fmt.get('acodec') != 'none' and not audio_url:
-                        audio_url = fmt.get('url')
-                        a_ua = fmt.get('http_headers', {}).get('User-Agent', user_agent)
+        if cookie_file and os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
                 
-                if video_url and audio_url:
-                    print("✅ Extracted dual video + audio stream URLs successfully.")
+                headers = info.get('http_headers', {})
+                user_agent = headers.get('User-Agent', '')
+
+                # Check for split video and audio streams
+                if 'requested_formats' in info and len(info['requested_formats']) >= 2:
+                    video_url, audio_url = None, None
+                    v_ua, a_ua = user_agent, user_agent
+
+                    for fmt in info['requested_formats']:
+                        if fmt.get('vcodec') != 'none' and not video_url:
+                            video_url = fmt.get('url')
+                            v_ua = fmt.get('http_headers', {}).get('User-Agent', user_agent)
+                        elif fmt.get('acodec') != 'none' and not audio_url:
+                            audio_url = fmt.get('url')
+                            a_ua = fmt.get('http_headers', {}).get('User-Agent', user_agent)
+                    
+                    if video_url and audio_url:
+                        print(f"✅ Extracted dual stream URLs using Strategy {idx}.")
+                        return {
+                            'type': 'dual',
+                            'video_url': video_url,
+                            'audio_url': audio_url,
+                            'video_ua': v_ua,
+                            'audio_ua': a_ua
+                        }
+
+                # Single combined stream fallback
+                if 'url' in info:
+                    print(f"✅ Extracted single stream URL using Strategy {idx}.")
                     return {
-                        'type': 'dual',
-                        'video_url': video_url,
-                        'audio_url': audio_url,
-                        'video_ua': v_ua,
-                        'audio_ua': a_ua
+                        'type': 'single',
+                        'url': info['url'],
+                        'user_agent': user_agent
                     }
+        except Exception as e:
+            print(f"⚠️ Extraction Strategy {idx} failed: {e}. Trying next strategy...")
 
-            # Single combined stream fallback
-            if 'url' in info:
-                print("✅ Extracted single combined stream URL successfully.")
-                return {
-                    'type': 'single',
-                    'url': info['url'],
-                    'user_agent': user_agent
-                }
-
-            raise ValueError("Could not extract stream URL from video format metadata.")
-    except Exception as e:
-        print(f"❌ Extraction error for {youtube_url}: {e}")
-        return None
+    print(f"❌ All extraction strategies failed for {youtube_url}.")
+    return None
 
 
 def stream_video(media_data, stream_target):
