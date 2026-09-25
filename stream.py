@@ -58,8 +58,18 @@ def extract_media_urls(youtube_url):
         'quiet': False,
         'no_warnings': False,
         'noplaylist': True,
-        'js_runtimes': {'node': {}}
+        'js_runtimes': {'node': {}},
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'tv', 'mweb']
+            }
+        }
     }
+
+    cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
+    if cookie_file and os.path.exists(cookie_file):
+        print(f"🍪 Using YouTube cookies from: {cookie_file}")
+        ydl_opts['cookiefile'] = cookie_file
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
