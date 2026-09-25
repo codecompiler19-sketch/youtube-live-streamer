@@ -131,73 +131,83 @@ def extract_media_urls(youtube_url):
 
 
 def stream_video(media_data, stream_target):
-    """Stream media via FFmpeg to YouTube Live passing required User-Agent headers."""
-    ffmpeg_cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
+    """Stream media via FFmpeg to YouTube Live with RTMPS fallback."""
+    targets_to_try = [stream_target]
+    if "rtmp://" in stream_target:
+        rtmps_target = stream_target.replace("rtmp://a.rtmp.youtube.com/live2", "rtmps://a.rtmp.youtube.com/live2:443")
+        if rtmps_target not in targets_to_try:
+            targets_to_try.append(rtmps_target)
 
-    reconnect_flags = [
-        "-reconnect", "1",
-        "-reconnect_at_eof", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "5"
-    ]
+    for idx, target in enumerate(targets_to_try, 1):
+        ffmpeg_cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
 
-    if media_data['type'] == 'dual':
-        v_url = media_data['video_url']
-        a_url = media_data['audio_url']
-        v_ua = media_data['video_ua']
-        a_ua = media_data['audio_ua']
+        reconnect_flags = [
+            "-reconnect", "1",
+            "-reconnect_at_eof", "1",
+            "-reconnect_streamed", "1",
+            "-reconnect_delay_max", "5"
+        ]
 
-        if v_ua:
-            ffmpeg_cmd.extend(["-user_agent", v_ua])
-        ffmpeg_cmd.extend(reconnect_flags)
-        ffmpeg_cmd.extend(["-re", "-i", v_url])
+        if media_data['type'] == 'dual':
+            v_url = media_data['video_url']
+            a_url = media_data['audio_url']
+            v_ua = media_data['video_ua']
+            a_ua = media_data['audio_ua']
 
-        if a_ua:
-            ffmpeg_cmd.extend(["-user_agent", a_ua])
-        ffmpeg_cmd.extend(reconnect_flags)
-        ffmpeg_cmd.extend(["-re", "-i", a_url])
-
-        ffmpeg_cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
-    else:
-        s_url = media_data['url']
-        ua = media_data.get('user_agent', '')
-        is_http = s_url.startswith(('http://', 'https://'))
-
-        if is_http:
-            if ua:
-                ffmpeg_cmd.extend(["-user_agent", ua])
+            if v_ua:
+                ffmpeg_cmd.extend(["-user_agent", v_ua])
             ffmpeg_cmd.extend(reconnect_flags)
-            ffmpeg_cmd.extend(["-re", "-i", s_url])
+            ffmpeg_cmd.extend(["-re", "-i", v_url])
+
+            if a_ua:
+                ffmpeg_cmd.extend(["-user_agent", a_ua])
+            ffmpeg_cmd.extend(reconnect_flags)
+            ffmpeg_cmd.extend(["-re", "-i", a_url])
+
+            ffmpeg_cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
         else:
-            # Local video file: use -stream_loop -1 for continuous seamless looping
-            ffmpeg_cmd.extend(["-stream_loop", "-1", "-re", "-i", s_url])
+            s_url = media_data['url']
+            ua = media_data.get('user_agent', '')
+            is_http = s_url.startswith(('http://', 'https://'))
 
-    # Standard YouTube Live H.264 + AAC output configuration
-    ffmpeg_cmd.extend([
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-tune", "zerolatency",
-        "-b:v", "4500k",
-        "-maxrate", "4500k",
-        "-bufsize", "9000k",
-        "-pix_fmt", "yuv420p",
-        "-g", "60",
-        "-keyint_min", "60",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ar", "44100",
-        "-f", "flv",
-        stream_target
-    ])
+            if is_http:
+                if ua:
+                    ffmpeg_cmd.extend(["-user_agent", ua])
+                ffmpeg_cmd.extend(reconnect_flags)
+                ffmpeg_cmd.extend(["-re", "-i", s_url])
+            else:
+                # Local video file: use -stream_loop -1 for continuous seamless looping
+                ffmpeg_cmd.extend(["-stream_loop", "-1", "-re", "-i", s_url])
 
-    print("▶️ Executing FFmpeg stream output to YouTube Live...")
-    try:
-        process = subprocess.Popen(ffmpeg_cmd)
-        process.wait()
-        return process.returncode == 0
-    except Exception as e:
-        print(f"⚠️ FFmpeg process error: {e}")
-        return False
+        # Standard YouTube Live H.264 + AAC output configuration
+        ffmpeg_cmd.extend([
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-tune", "zerolatency",
+            "-b:v", "4500k",
+            "-maxrate", "4500k",
+            "-bufsize", "9000k",
+            "-pix_fmt", "yuv420p",
+            "-g", "60",
+            "-keyint_min", "60",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "44100",
+            "-f", "flv",
+            target
+        ])
+
+        print(f"▶️ Executing FFmpeg stream attempt {idx}/{len(targets_to_try)}...")
+        try:
+            process = subprocess.Popen(ffmpeg_cmd)
+            process.wait()
+            if process.returncode == 0:
+                return True
+            print(f"⚠️ FFmpeg stream attempt {idx} failed with exit code {process.returncode}.")
+        except Exception as e:
+            print(f"⚠️ FFmpeg process error: {e}")
+
+    return False
 
 
 def main():
