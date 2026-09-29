@@ -12,6 +12,18 @@ import subprocess
 import json
 import urllib.request
 
+# Ensure UTF-8 output encoding for print statements to prevent Windows charmap encoding errors
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 # Maximum streaming duration in seconds (5 hours 55 minutes)
 MAX_DURATION_SECONDS = int(os.getenv("MAX_STREAM_DURATION_SECONDS", "21300"))
 PLAYLIST_FILE = os.getenv("PLAYLIST_FILE", "playlist.txt")
@@ -342,9 +354,15 @@ def stream_video(media_data, stream_target):
             cmd.extend(["-threads", "1"])
 
             if strat == 1:
-                # Stream copy: extremely low resource usage for shared hosting
+                # Strategy 1: Ultrafast libx264 encoding for guaranteed YouTube RTMP FLV compatibility
                 cmd.extend([
-                    "-c:v", "copy",
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-b:v", "2500k",
+                    "-maxrate", "2500k",
+                    "-bufsize", "5000k",
+                    "-pix_fmt", "yuv420p",
+                    "-g", "60",
                     "-c:a", "aac",
                     "-b:a", "128k",
                     "-ar", "44100",
@@ -352,15 +370,9 @@ def stream_video(media_data, stream_target):
                     target
                 ])
             else:
-                # Ultrafast low bitrate fallback
+                # Strategy 2: Stream copy fallback
                 cmd.extend([
-                    "-c:v", "libx264",
-                    "-preset", "ultrafast",
-                    "-b:v", "2000k",
-                    "-maxrate", "2000k",
-                    "-bufsize", "4000k",
-                    "-pix_fmt", "yuv420p",
-                    "-g", "60",
+                    "-c:v", "copy",
                     "-c:a", "aac",
                     "-b:a", "128k",
                     "-ar", "44100",
