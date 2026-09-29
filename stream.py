@@ -209,7 +209,7 @@ def extract_media_urls(youtube_url):
 
         for idx, strategy in enumerate(client_strategies, 1):
             ydl_opts = {
-                'format': 'bestvideo+bestaudio/best[ext=mp4]/best',
+                'format': 'b/best/bestvideo+bestaudio',
                 'quiet': True,
                 'no_warnings': True,
                 'noplaylist': True,
@@ -258,7 +258,7 @@ def extract_media_urls(youtube_url):
         # Standalone yt-dlp executable CLI fallback
         print("ℹ️ Using standalone yt-dlp CLI for stream extraction...")
         try:
-            cmd = [sys.executable, yt_obj, "-j", "--no-playlist", "--extractor-args", "youtube:player_client=tv,mweb,ios,android;player_skip=web,web_creator", "-f", "bestvideo+bestaudio/best[ext=mp4]/best", youtube_url]
+            cmd = [sys.executable, yt_obj, "-j", "--no-playlist", "--extractor-args", "youtube:player_client=tv,mweb,ios,android;player_skip=web,web_creator", "-f", "b/best/bestvideo+bestaudio", youtube_url]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=45)
             if res.returncode == 0 and res.stdout:
                 info = json.loads(res.stdout)
