@@ -201,10 +201,10 @@ def extract_media_urls(youtube_url):
     if yt_type == 'module':
         cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
         client_strategies = [
-            {'player_client': ['tv', 'mweb', 'ios', 'android'], 'player_skip': ['web', 'web_creator']},
-            {'player_client': ['android', 'ios', 'tv'], 'player_skip': ['web', 'web_creator']},
-            {'player_client': ['tv_embedded', 'mweb'], 'player_skip': ['web']},
-            {'player_client': ['ios'], 'player_skip': ['web']}
+            {'player_client': ['tv', 'visionos', 'mweb']},
+            {'player_client': ['android', 'ios']},
+            {'player_client': ['tv'], 'player_skip': ['web']},
+            {'player_client': ['mweb', 'ios']}
         ]
 
         for idx, strategy in enumerate(client_strategies, 1):
