@@ -201,15 +201,15 @@ def extract_media_urls(youtube_url):
     if yt_type == 'module':
         cookie_file = os.getenv("YOUTUBE_COOKIE_FILE")
         client_strategies = [
-            {'player_client': ['ios', 'android'], 'player_skip': ['web', 'web_creator', 'mweb', 'tv']},
-            {'player_client': ['android', 'ios'], 'player_skip': ['web', 'web_creator']},
-            {'player_client': ['tv', 'mweb'], 'player_skip': ['web']},
-            {}
+            {'player_client': ['tv', 'mweb', 'ios', 'android'], 'player_skip': ['web', 'web_creator']},
+            {'player_client': ['android', 'ios', 'tv'], 'player_skip': ['web', 'web_creator']},
+            {'player_client': ['tv_embedded', 'mweb'], 'player_skip': ['web']},
+            {'player_client': ['ios'], 'player_skip': ['web']}
         ]
 
         for idx, strategy in enumerate(client_strategies, 1):
             ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'format': 'bestvideo+bestaudio/best[ext=mp4]/best',
                 'quiet': True,
                 'no_warnings': True,
                 'noplaylist': True,
@@ -258,7 +258,7 @@ def extract_media_urls(youtube_url):
         # Standalone yt-dlp executable CLI fallback
         print("ℹ️ Using standalone yt-dlp CLI for stream extraction...")
         try:
-            cmd = [sys.executable, yt_obj, "-j", "--no-playlist", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", youtube_url]
+            cmd = [sys.executable, yt_obj, "-j", "--no-playlist", "--extractor-args", "youtube:player_client=tv,mweb,ios,android;player_skip=web,web_creator", "-f", "bestvideo+bestaudio/best[ext=mp4]/best", youtube_url]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=45)
             if res.returncode == 0 and res.stdout:
                 info = json.loads(res.stdout)
