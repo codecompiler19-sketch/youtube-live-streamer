@@ -119,6 +119,48 @@ function isProcessRunning($pidFile) {
     return false;
 }
 
+function getGitHubRunStatus($githubRepo, $githubToken = '') {
+    if (empty($githubRepo)) {
+        return ['is_running' => false, 'status' => 'offline', 'conclusion' => null];
+    }
+    $url = "https://api.github.com/repos/" . trim($githubRepo, '/ ') . "/actions/runs?per_page=1";
+    $ch = curl_init($url);
+    $headers = [
+        'User-Agent: PHP-Stream-Manager',
+        'Accept: application/vnd.github.v3+json'
+    ];
+    if (!empty($githubToken)) {
+        $headers[] = "Authorization: Bearer {$githubToken}";
+    }
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 4);
+
+    $resp = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && $resp) {
+        $data = json_decode($resp, true);
+        if (!empty($data['workflow_runs'][0])) {
+            $run = $data['workflow_runs'][0];
+            $status = $run['status'] ?? 'unknown';
+            $conclusion = $run['conclusion'] ?? null;
+            $isLive = ($status === 'in_progress');
+            return [
+                'is_running' => $isLive,
+                'status' => $status,
+                'conclusion' => $conclusion,
+                'run_url' => $run['html_url'] ?? '',
+                'created_at' => $run['created_at'] ?? ''
+            ];
+        }
+    }
+    return ['is_running' => false, 'status' => 'offline', 'conclusion' => null];
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 switch ($action) {
@@ -359,9 +401,23 @@ switch ($action) {
         break;
 
     case 'status':
-        $isRunning = isProcessRunning($pidFile);
+        $config = loadConfig($configFile);
         $pidContent = file_exists($pidFile) ? trim(file_get_contents($pidFile)) : '';
-        $isCloud = ($pidContent === 'cloud_active');
+        $isCloudMode = ($config['stream_mode'] ?? '') === 'cloud' || $pidContent === 'cloud_active';
+
+        $cloudInfo = null;
+        if ($isCloudMode && !empty($config['github_repo'])) {
+            $cloudInfo = getGitHubRunStatus($config['github_repo'], $config['github_token'] ?? '');
+            $isRunning = $cloudInfo['is_running'];
+            $mode = 'cloud';
+            if (!$isRunning && $pidContent === 'cloud_active' && ($cloudInfo['status'] === 'completed' || $cloudInfo['status'] === 'offline')) {
+                // Clean up stale cloud pid if run ended
+                @unlink($pidFile);
+            }
+        } else {
+            $isRunning = isProcessRunning($pidFile);
+            $mode = $isRunning ? 'local' : 'stopped';
+        }
 
         $logText = file_exists($logFile) ? file_get_contents($logFile) : 'No logs yet.';
         $lines = explode("\n", $logText);
@@ -374,8 +430,9 @@ switch ($action) {
 
         echo json_encode([
             'status' => 'success',
-            'is_running' => $isRunning || $isCloud,
-            'mode' => $isCloud ? 'cloud' : ($isRunning ? 'local' : 'stopped'),
+            'is_running' => $isRunning,
+            'mode' => $mode,
+            'cloud_info' => $cloudInfo,
             'pid' => $pidContent,
             'logs' => $recentLogs,
             'playlist' => $playlistContent
