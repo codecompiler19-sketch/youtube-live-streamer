@@ -1,0 +1,3 @@
+# Block all search engines from crawling this directory
+User-agent: *
+Disallow: /

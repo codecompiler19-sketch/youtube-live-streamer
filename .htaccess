@@ -1,0 +1,11 @@
+# Prevent Search Engines (Google, Bing, Yahoo, etc.) from indexing or crawling this folder
+<IfModule mod_headers.c>
+    Header set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex"
+</IfModule>
+
+# Block known search engine bots and crawlers by User-Agent
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP_USER_AGENT} (googlebot|bingbot|yandex|baiduspider|facebookexternalhit|twitterbot|rogerbot|linkedinbot|embedly|showyouhave|outbrain|pinterest|slackbot|vkShare|w3c_validator|duckduckbot|slurp) [NC]
+    RewriteRule ^ - [F,L]
+</IfModule>

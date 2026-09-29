@@ -62,9 +62,9 @@ jobs:
           python stream.py
 
       - name: Auto-Restart Stream Workflow
-        if: success()
+        if: always()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           echo "🔄 Dispatching next 6-hour streaming session automatically..."
-          gh workflow run stream.yml
+          gh workflow run stream.yml || echo "ℹ️ Note: Auto-dispatch skipped or requires GH_PAT secret."
